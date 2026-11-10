@@ -101,11 +101,192 @@ for (const demo of demos.filter(d => ['tap-pop','tap-bell'].includes(d.id))) {
 });`;
 }
 
+function setupWanderingImage(arena, onToggle = () => {}) {
+  const button = arena.querySelector('.wander-image');
+  const status = arena.querySelector('.wander-status');
+  let x = 0, y = 0, vx = 96, vy = 68, running = false;
+  let frame = 0, lastTime = 0, initialized = false, movementSpeed = 1;
+  const bounds = () => ({
+    x: Math.max(0, arena.clientWidth - button.offsetWidth),
+    y: Math.max(0, arena.clientHeight - button.offsetHeight)
+  });
+  function draw() { button.style.transform = `translate(${x}px, ${y}px)`; }
+  function resize() {
+    const limit = bounds();
+    x = initialized ? Math.min(Math.max(x, 0), limit.x) : limit.x / 2;
+    y = initialized ? Math.min(Math.max(y, 0), limit.y) : limit.y / 2;
+    initialized = true;
+    draw();
+  }
+  function tick(time) {
+    const dt = lastTime ? Math.min((time - lastTime) / 1000, .04) : 0;
+    lastTime = time;
+    const limit = bounds();
+    x += vx * dt * movementSpeed;
+    y += vy * dt * movementSpeed;
+    if (x <= 0) { x = 0; vx = Math.abs(vx); }
+    if (x >= limit.x) { x = limit.x; vx = -Math.abs(vx); }
+    if (y <= 0) { y = 0; vy = Math.abs(vy); }
+    if (y >= limit.y) { y = limit.y; vy = -Math.abs(vy); }
+    draw();
+    if (running) frame = requestAnimationFrame(tick);
+  }
+  function toggle() {
+    running = !running;
+    button.setAttribute('aria-pressed', String(running));
+    button.setAttribute('aria-label', running ? '画像をタップして止める' : '画像をタップして動かす');
+    status.textContent = running ? 'もう一度タップでストップ' : 'タップしてスタート';
+    cancelAnimationFrame(frame);
+    lastTime = 0;
+    if (running) frame = requestAnimationFrame(tick);
+    onToggle(running);
+  }
+  button.style.left = '0';
+  button.style.top = '0';
+  button.addEventListener('click', toggle);
+  const observer = new ResizeObserver(resize);
+  observer.observe(arena);
+  resize();
+  const cleanup = () => {
+    running = false;
+    cancelAnimationFrame(frame);
+    observer.disconnect();
+    button.removeEventListener('click', toggle);
+  };
+  cleanup.setSpeed = value => { movementSpeed = value; };
+  cleanup.setPaused = value => { if (running !== !value) toggle(); };
+  return cleanup;
+}
+demos.push({
+  id:'wandering-image', name:'Little wanderer', jp:'画像のおさんぽ',
+  desc:'タップでおさんぽ。端まで行ったら、くるっと折り返し。',
+  category:'interactive', level:'ひと工夫', bg:'#eee9d8', tags:['HTML','CSS','JS'], tone:523,
+  hint:'画像をタップでスタート・ストップ。端に当たると跳ね返ります。',
+  html:'<div class="scene wander-scene">\n  <button class="wander-image" aria-label="画像をタップして動かす" aria-pressed="false">\n    <img src="assets/wandering-image.jpg" alt="オレンジ色のキャラクター" width="1280" height="1280" draggable="false">\n  </button>\n  <span class="wander-status" role="status">タップしてスタート</span>\n</div>',
+  css:'.wander-scene { display: block; position: relative; width: min(680px, calc(100vw - 32px)); height: clamp(200px, 45vh, 360px); overflow: hidden; }\n.wander-image { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 88px; height: 88px; padding: 0; border: 2px solid #fff9df; border-radius: 18px; background: #000; box-shadow: 0 5px 14px #30332a20; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }\n.wander-image img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 16px; user-select: none; pointer-events: none; }\n.wander-image:focus-visible { outline: 3px solid #728245; outline-offset: -4px; }\n.wander-status { position: absolute; bottom: 5px; right: 5px; padding: 5px 8px; border-radius: 12px; background: #fbfaf0cc; color: #747d61; font: 10px/1.5 sans-serif; pointer-events: none; }',
+  js:audioSample + setupWanderingImage.toString() + '\n\nconst arena = document.querySelector(".wander-scene");\nconst cleanup = setupWanderingImage(arena, running => playNote(running ? 523 : 392));\n// cleanup.setSpeed(2) で2倍速、cleanup.setPaused(true) で一時停止できます。\n// 要素を取り除くときは cleanup() を呼び、アニメーションと監視を終了します。',
+  steps:['assetsフォルダを作り、画像をwandering-image.jpgという名前で保存します。別の画像でも差し替えられます。','画像をボタンで囲み、タップで移動の開始・停止を切り替えます。','requestAnimationFrameで経過時間に合わせて座標を更新し、端で進行方向を反転させます。','ResizeObserverで画面幅の変更に対応します。タップ時には短い音も鳴ります。']
+});
+
+function setupColorTap(root, sound) {
+  const button = root.querySelector('.color-tap');
+  const label = root.querySelector('.color-value');
+  const colors = ['#9BA875', '#DBAD73', '#B29BC1', '#79A9A2', '#D68F91'];
+  let index = 0;
+  function tap() {
+    index = (index + 1) % colors.length;
+    button.style.backgroundColor = colors[index];
+    label.textContent = colors[index];
+    sound([392, 440, 523, 587, 659][index]);
+  }
+  button.addEventListener('click', tap);
+  return () => button.removeEventListener('click', tap);
+}
+function setupPlayfulBurst(root, sound) {
+  const button = root.querySelector('.playful-button');
+  let timer;
+  function tap() {
+    clearTimeout(timer);
+    button.classList.remove('bursting');
+    void button.offsetWidth;
+    button.classList.add('bursting');
+    sound(Number(button.dataset.tone));
+    timer = setTimeout(() => button.classList.remove('bursting'), 1000);
+  }
+  button.addEventListener('click', tap);
+  return () => { clearTimeout(timer); button.removeEventListener('click', tap); };
+}
+function setupDayNight(root, sound) {
+  const button = root.querySelector('.day-night');
+  const label = root.querySelector('.day-night-label');
+  function tap() {
+    const night = button.classList.toggle('is-night');
+    button.setAttribute('aria-pressed', String(night));
+    button.setAttribute('aria-label', night ? '昼に切り替える' : '夜に切り替える');
+    label.textContent = night ? 'おやすみ、またあした。' : 'おはよう、新しい一日。';
+    sound(night ? 294 : 587);
+  }
+  button.addEventListener('click', tap);
+  return () => button.removeEventListener('click', tap);
+}
+function setupEscapingImage(root, sound) {
+  const arena = root.querySelector('.escape-scene');
+  const button = arena.querySelector('.escape-image');
+  const label = arena.querySelector('.escape-count');
+  let x = 0, y = 0, count = 0, initialized = false;
+  const bounds = () => ({x: Math.max(0, arena.clientWidth - button.offsetWidth), y: Math.max(0, arena.clientHeight - button.offsetHeight)});
+  function draw() { button.style.transform = `translate(${x}px, ${y}px)`; }
+  function resize() {
+    const limit = bounds();
+    x = initialized ? Math.min(x, limit.x) : limit.x / 2;
+    y = initialized ? Math.min(y, limit.y) : limit.y / 2;
+    initialized = true;
+    draw();
+  }
+  function tap() {
+    const limit = bounds();
+    let nx = Math.random() * limit.x, ny = Math.random() * limit.y;
+    // 近すぎる位置が選ばれたら、反対側へ移動します。
+    if (Math.hypot(nx - x, ny - y) < 60) {
+      nx = x < limit.x / 2 ? limit.x : 0;
+      ny = y < limit.y / 2 ? limit.y : 0;
+    }
+    x = nx; y = ny;
+    draw();
+    label.textContent = `${++count} 回つかまえた！`;
+    sound(440 + (count % 5) * 65);
+  }
+  button.style.left = '0'; button.style.top = '0';
+  button.addEventListener('click', tap);
+  const observer = new ResizeObserver(resize);
+  observer.observe(arena);
+  resize();
+  return () => { observer.disconnect(); button.removeEventListener('click', tap); };
+}
+const playfulDemos = [
+  {
+    id:'color-tap',name:'Color picnic',jp:'タップで色あそび',desc:'タップするたび、新しい色と新しい音。',bg:'#eee6dd',setup:setupColorTap,
+    html:'<div class="scene color-tap-scene">\n  <button class="color-tap" aria-label="次の色に変える">✳</button>\n  <span class="color-value" role="status">#9BA875</span>\n</div>',
+    css:'.color-tap-scene { flex-direction: column; gap: 15px; }\n.color-tap { display: grid; place-items: center; width: 84px; height: 84px; border: 0; border-radius: 24px; background: #9BA875; color: #fff8e8; font-size: 43px; transition: background-color .5s ease, border-radius .5s ease; }\n.color-tap:active { border-radius: 50%; }\n.color-value { font: 11px/1.5 monospace; color: #89856e; letter-spacing: 2px; }',
+    steps:['5色のカラーコードを配列に用意します。','タップするたびに次の色へ進み、背景色と表示するコードを更新します。','CSSのtransitionで色をなめらかに変化させ、色ごとに異なる音を鳴らします。']
+  },
+  {
+    id:'jelly-tap',name:'Jelly joy',jp:'ぷるぷるゼリー',desc:'つつくと、ぷるん。やわらかく揺れるゼリー。',bg:'#e7eddf',setup:setupPlayfulBurst,
+    html:'<div class="scene jelly-scene">\n  <button class="playful-button jelly-button" data-tone="349" aria-label="ゼリーをつついて揺らす"><span aria-hidden="true">◡</span></button>\n</div>',
+    css:'.jelly-button { width: 100px; height: 84px; border: 0; border-radius: 45% 45% 28% 28%; background: #a7bb83; color: #5c7742; box-shadow: inset -9px -9px 0 #91a76f; font-size: 37px; transform-origin: center bottom; position: relative; }\n.jelly-button::before { content: ""; position: absolute; top: 15px; left: 21px; width: 20px; height: 8px; border-radius: 50%; background: #dbe6c4; transform: rotate(-25deg); }\n.jelly-button.bursting { animation: jelly-wobble .9s ease-out; }\n@keyframes jelly-wobble { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.25,.72) skewX(-8deg); } 32% { transform: scale(.82,1.2) skewX(8deg); } 50% { transform: scale(1.12,.9) skewX(-5deg); } 70% { transform: scale(.96,1.06) skewX(3deg); } }',
+    steps:['角丸と内側の影でゼリーの形を作ります。','scaleとskewXを交互に変化させ、揺れ幅を少しずつ小さくします。','タップでアニメーションを最初から再生し、低めの音を添えます。']
+  },
+  {
+    id:'confetti-tap',name:'Tiny celebration',jp:'タップで紙吹雪',desc:'小さなお祝いを、ぱっと咲かせよう。',bg:'#f2edcb',setup:setupPlayfulBurst,
+    html:'<div class="scene confetti-scene">\n  <button class="playful-button confetti-button" data-tone="784" aria-label="紙吹雪を飛ばす">\n    <span aria-hidden="true">✦</span>\n'+Array.from({length:14},(_,i)=>`    <i aria-hidden="true" style="--x:${Math.round(Math.cos(i/14*Math.PI*2)*83)}px;--y:${Math.round(Math.sin(i/14*Math.PI*2)*62)}px;--r:${i*53}deg;--c:${['#9cab6d','#d6a270','#ba9eb7','#80aaa1'][i%4]}"></i>`).join('\n')+'\n  </button>\n</div>',
+    css:'.confetti-button { position: relative; width: 70px; height: 70px; border: 1px solid #b1b988; border-radius: 22px; background: #dce2b0; color: #78874a; font-size: 32px; overflow: visible; }\n.confetti-button i { position: absolute; left: calc(50% - 3px); top: calc(50% - 5px); width: 6px; height: 10px; border-radius: 2px; background: var(--c); opacity: 0; pointer-events: none; }\n.confetti-button.bursting > span { display: inline-block; animation: confetti-pop .4s ease-out; }\n.confetti-button.bursting i { animation: confetti-fly .9s ease-out both; }\n@keyframes confetti-fly { 0% { transform: translate(0,0) rotate(0); opacity: 0; } 12% { opacity: 1; } 70% { opacity: 1; } 100% { transform: translate(var(--x),var(--y)) rotate(var(--r)); opacity: 0; } }\n@keyframes confetti-pop { 40% { transform: scale(.7) rotate(-30deg); } 75% { transform: scale(1.2); } }',
+    steps:['ボタンの中央に14枚の小さな紙を重ねます。','CSS変数にそれぞれの飛ぶ位置・回転角度・色を設定します。','タップすると外へ飛ばし、透明にして消します。紙は毎回再利用します。']
+  },
+  {
+    id:'escape-image',name:'Catch me!',jp:'タップで逃げる画像',desc:'つかまえた？ 次の瞬間、ぴょんとお引っ越し。',bg:'#eee9d8',setup:setupEscapingImage,
+    hint:'画像をタップすると別の場所へジャンプ。何回つかまえられる？',
+    html:'<div class="scene escape-scene">\n  <button class="escape-image" aria-label="画像をつかまえる"><img src="assets/wandering-image.jpg" width="1280" height="1280" alt="オレンジ色のキャラクター" draggable="false"></button>\n  <span class="escape-count" role="status">タップでつかまえて！</span>\n</div>',
+    css:'.escape-scene { position: relative; display: block; width: min(680px, calc(100vw - 32px)); height: clamp(200px,45vh,360px); overflow: hidden; }\n.escape-image { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 70px; height: 70px; padding: 0; background: #000; border: 2px solid #fff8de; border-radius: 17px; transition: transform .3s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; }\n.escape-image img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 15px; pointer-events: none; }\n.escape-image:focus-visible { outline: 3px solid #728245; outline-offset: -4px; }\n.escape-count { position: absolute; right: 5px; bottom: 5px; font: 10px/1.5 sans-serif; color: #788167; background: #fbfaf0cc; padding: 5px 8px; border-radius: 12px; pointer-events: none; }',
+    steps:['移動できるエリアの中に、画像をボタンとして配置します。','タップでランダムな座標へ移動し、つかまえた回数を表示します。','画像の大きさを移動範囲から引き、画面外に出ないようにします。']
+  },
+  {
+    id:'day-night',name:'Hello, goodnight',jp:'昼と夜のスイッチ',desc:'太陽をタップしたら、月と星の時間。',bg:'#e9eddb',setup:setupDayNight,
+    html:'<div class="scene day-night-scene">\n  <button class="day-night" aria-label="夜に切り替える" aria-pressed="false"><span class="sky-stars" aria-hidden="true">✧ · ✦</span><span class="sky-sun" aria-hidden="true"></span><span class="sky-hill" aria-hidden="true"></span></button>\n  <span class="day-night-label" role="status">おはよう、新しい一日。</span>\n</div>',
+    css:'.day-night-scene { flex-direction: column; gap: 13px; }\n.day-night { position: relative; width: 170px; height: 92px; border: 1px solid #bdc6a2; border-radius: 50px; overflow: hidden; background: #e9d99d; transition: background .7s ease; }\n.sky-sun { position: absolute; width: 36px; height: 36px; top: 15px; left: 24px; border-radius: 50%; background: #f8f0bb; transition: transform .7s ease, box-shadow .7s ease; }\n.sky-hill { position: absolute; width: 200px; height: 80px; left: -15px; bottom: -50px; border-radius: 50%; background: #a6b77b; transition: background .7s ease; }\n.sky-stars { position: absolute; color: #f5ebbb; right: 20px; top: 15px; font-size: 19px; opacity: 0; transform: translateY(7px); transition: opacity .7s ease, transform .7s ease; }\n.day-night.is-night { background: #46516a; }\n.day-night.is-night .sky-sun { transform: translateX(73px); box-shadow: inset -11px -4px #46516a; }\n.day-night.is-night .sky-stars { right: auto; left: 19px; opacity: 1; transform: translateY(0); }\n.day-night.is-night .sky-hill { background: #65765a; }\n.day-night-label { font: 10px/1.5 sans-serif; color: #7d8669; }',
+    steps:['空・太陽・丘・星をボタンの中に重ねます。','タップでis-nightクラスを切り替え、背景と各パーツを変化させます。','太陽に内側の影を重ねて三日月に見せ、星を浮かび上がらせます。']
+  }
+];
+demos.push(...playfulDemos.map(d => ({
+  ...d, category:'interactive', level:'ひと工夫', tags:['HTML','CSS','JS'],
+  js:audioSample + d.setup.toString() + `\n\nconst cleanup = ${d.setup.name}(document, playNote);\n// 画面を閉じるときは cleanup() を呼びます。`
+})));
+
 const app = document.querySelector('#app');
 const style = document.createElement('style');
 style.textContent = demos.map(d => d.css).join('\n');
 document.head.append(style);
 let audioContext, currentFilter = 'all', currentTab = 'html', currentDemo, paused = false, speed = 1, toastTimeout;
+let cleanupDemo = () => {};
 const escapeHTML = text => text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 const tags = d => d.tags.map(t => `<span class="tag">${t}</span>`).join('');
 function toast(message) { const el = document.querySelector('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(toastTimeout); toastTimeout = setTimeout(() => el.classList.remove('show'), 2300); }
@@ -121,7 +302,7 @@ async function playTone(frequency) {
 }
 function home() {
   currentDemo = null;
-  app.innerHTML = `<section class="hero"><div><div class="eyebrow"><span class="tiny-dot"></span> A LITTLE COLLECTION OF MOTION</div><h1>眺めて、触れて、<br><span>動きのアイデア</span>を見つけよう。</h1><p>HTML・CSS・JavaScriptで生まれる、小さなアニメーション。<br>気になる動きを開いて、しくみをのぞいて、あなたのアイデアに。</p></div><div class="hero-art" aria-hidden="true"><div class="art-core"></div><i class="art-dot"></i><span class="art-star">✳</span><span class="art-plus">＋</span><span class="art-label">a little motion, a little joy.</span></div></section><div class="intro-strip"><span><span class="tiny-dot"></span> すべてブラウザで動く、小さな実験。</span><span class="strip-note">↗ デモを見る　 &lt;/&gt; コードを読む　 ◖)) 音であそぶ</span></div><section class="collection" aria-label="アニメーション一覧"><div class="collection-toolbar"><div class="section-title">The collection<span id="collection-count">${String(demos.length).padStart(2,'0')}</span></div><div class="filters" role="group" aria-label="カテゴリー"><button class="filter" data-filter="all">すべて</button><button class="filter" data-filter="basic">ベーシック</button><button class="filter" data-filter="loop">ループ</button><button class="filter" data-filter="text">テキスト</button><button class="filter" data-filter="interactive">タップ＆音</button></div></div><div class="grid" id="grid"></div><div class="end-note"><span>✳</span> 気になる動きから、はじめよう。</div></section>`;
+  app.innerHTML = `<section class="hero"><div><div class="eyebrow"><span class="tiny-dot"></span> A LITTLE COLLECTION OF MOTION</div><h1>眺めて、触れて、<br><span>動きのアイデア</span><span class="hero-tail">を見つけよう。</span></h1><p>HTML・CSS・JavaScriptで生まれる、小さなアニメーション。<br>気になる動きを開いて、しくみをのぞいて、あなたのアイデアに。</p></div><div class="hero-art" aria-hidden="true"><div class="art-core"></div><i class="art-dot"></i><span class="art-star">✳</span><span class="art-plus">＋</span><span class="art-label">a little motion, a little joy.</span></div></section><div class="intro-strip"><span><span class="tiny-dot"></span> すべてブラウザで動く、小さな実験。</span><span class="strip-note">↗ デモを見る　 &lt;/&gt; コードを読む　 ◖)) 音であそぶ</span></div><section class="collection" aria-label="アニメーション一覧"><div class="collection-toolbar"><div class="section-title">The collection<span id="collection-count">${String(demos.length).padStart(2,'0')}</span></div><div class="filters" role="group" aria-label="カテゴリー"><button class="filter" data-filter="all">すべて</button><button class="filter" data-filter="basic">ベーシック</button><button class="filter" data-filter="loop">ループ</button><button class="filter" data-filter="text">テキスト</button><button class="filter" data-filter="interactive">タップ＆音</button></div></div><div class="grid" id="grid"></div><div class="end-note"><span>✳</span> 気になる動きから、はじめよう。</div></section>`;
   document.title = 'MOTION NOTE — 動きの実験帳';
   document.querySelectorAll('[data-filter]').forEach(b => b.addEventListener('click', () => {currentFilter = b.dataset.filter; renderCards();}));
   renderCards();
@@ -137,14 +318,23 @@ function codeFor(d, tab) {
   if(tab === 'css') return `/* style.css */\n* { box-sizing: border-box; }\nbody { margin: 0; min-height: 100vh; display: grid; place-items: center; background: ${d.bg}; }\nbutton { cursor: pointer; }\n.scene { display: flex; align-items: center; justify-content: center; width: 200px; height: 150px; position: relative; }\n\n${d.css}\n\n@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after { animation: none !important; transition: none !important; }\n}`;
   return d.js || '// このアニメーションはHTMLとCSSだけで動きます。\n// script.jsは空のままで大丈夫です。';
 }
+function renderControls(d) {
+  // タップで完結するデモに再生コントロールは不要。
+  if (d.category === 'interactive' && d.id !== 'wandering-image') {
+    return d.id === 'flip'
+      ? '<div class="controls controls--reset"><button class="control-btn" id="replay">↺ 表に戻す</button></div>'
+      : '';
+  }
+  return `<div class="controls"><div class="control-group"><button class="control-btn primary" id="pause" aria-pressed="${d.id === 'wandering-image'}">${d.id === 'wandering-image' ? '▶ おさんぽ開始' : 'Ⅱ 一時停止'}</button><button class="control-btn" id="replay">↺ リセット</button></div><label class="speed">再生速度<input type="range" id="speed" min="0.25" max="2" step="0.25" value="1"><output id="speed-value">1×</output></label></div>`;
+}
 function detail(d) {
-  currentDemo = d; paused = false; speed = 1; currentTab = 'html';
+  currentDemo = d; paused = d.id === 'wandering-image'; speed = 1; currentTab = 'html';
   document.title = `${d.name} — MOTION NOTE`;
-  app.innerHTML = `<div class="breadcrumb"><a href="#">コレクション</a><span>/</span><span>${d.name}</span></div><section><div class="detail-heading"><div><div class="eyebrow">EXPERIMENT ${String(demos.indexOf(d)+1).padStart(2,'0')} / ${d.jp}</div><h1>${d.name}</h1><p>${d.desc}</p><div class="card-meta">${tags(d)}</div></div><span class="detail-badge">${d.level}</span></div><div class="demo-panel"><div class="detail-stage" id="stage" style="--scene-bg:${d.bg}"><span class="stage-caption">LIVE PLAYGROUND</span><div id="demo-content">${d.html}</div><span class="stage-hint">${d.category === 'interactive' ? 'タップすると、動きに合わせて音が鳴ります。' : 'ゆっくり眺めて、動きのリズムを感じよう。'}</span></div><div class="controls"><div class="control-group"><button class="control-btn primary" id="pause" aria-pressed="false">Ⅱ 一時停止</button><button class="control-btn" id="replay">↺ リセット</button></div><label class="speed">再生速度<input type="range" id="speed" min="0.25" max="2" step="0.25" value="1"><output id="speed-value">1×</output></label></div></div><details class="learning"><summary><span>&lt;/&gt; 作り方とコード<small>しくみを知って、自分でつくってみよう</small></span></summary><div class="learning-inner"><div class="howto"><h2>HOW IT WORKS — つくり方</h2><ol>${d.steps.map(s=>`<li>${s}</li>`).join('')}</ol></div><div class="code-toolbar"><div class="code-tabs" role="tablist" aria-label="コードの言語">${['html','css','js'].map((t,i)=>`<button role="tab" id="tab-${t}" aria-controls="code-panel" aria-selected="${i===0}" tabindex="${i===0?'0':'-1'}" class="code-tab" data-tab="${t}">${t === 'js' ? 'JavaScript' : t.toUpperCase()}</button>`).join('')}</div><button class="copy-btn" id="copy-code">▢ コピー</button></div><pre id="code-panel" role="tabpanel" aria-labelledby="tab-html" tabindex="0"><code id="code"></code></pre><p class="code-footnote">HTMLを index.html、CSSを style.css、JavaScriptを script.js として同じフォルダに保存し、index.htmlをブラウザで開いてください。<br>上のコードはデモ本体です。再生コントロールは含まれません。音付きのデモでは、タップで音を鳴らす処理もJavaScriptに含まれます。</p></div></details><a class="back-link" href="#">← コレクションに戻る</a></section>`;
+  app.innerHTML = `<div class="breadcrumb"><a href="#">コレクション</a><span>/</span><span>${d.name}</span></div><section><div class="detail-heading"><div><div class="eyebrow">EXPERIMENT ${String(demos.indexOf(d)+1).padStart(2,'0')} / ${d.jp}</div><h1>${d.name}</h1><p>${d.desc}</p><div class="card-meta">${tags(d)}</div></div><span class="detail-badge">${d.level}</span></div><div class="demo-panel"><div class="detail-stage" id="stage" style="--scene-bg:${d.bg}"><span class="stage-caption">LIVE PLAYGROUND</span><div id="demo-content">${d.html}</div><span class="stage-hint">${d.hint || (d.category === 'interactive' ? 'タップすると、動きに合わせて音が鳴ります。' : 'ゆっくり眺めて、動きのリズムを感じよう。')}</span></div>${renderControls(d)}</div><details class="learning"><summary><span>&lt;/&gt; 作り方とコード<small>しくみを知って、自分でつくってみよう</small></span></summary><div class="learning-inner"><div class="howto"><h2>HOW IT WORKS — つくり方</h2><ol>${d.steps.map(s=>`<li>${s}</li>`).join('')}</ol></div><div class="code-toolbar"><div class="code-tabs" role="tablist" aria-label="コードの言語">${['html','css','js'].map((t,i)=>`<button role="tab" id="tab-${t}" aria-controls="code-panel" aria-selected="${i===0}" tabindex="${i===0?'0':'-1'}" class="code-tab" data-tab="${t}">${t === 'js' ? 'JavaScript' : t.toUpperCase()}</button>`).join('')}</div><button class="copy-btn" id="copy-code">▢ コピー</button></div><pre id="code-panel" role="tabpanel" aria-labelledby="tab-html" tabindex="0"><code id="code"></code></pre><p class="code-footnote">HTMLを index.html、CSSを style.css、JavaScriptを script.js として同じフォルダに保存し、index.htmlをブラウザで開いてください。<br>上のコードはデモ本体です。再生コントロールは含まれません。音付きのデモでは、タップで音を鳴らす処理もJavaScriptに含まれます。</p></div></details><a class="back-link" href="#">← コレクションに戻る</a></section>`;
   bindInteractions();
-  document.querySelector('#pause').addEventListener('click', () => { paused = !paused; document.querySelector('#demo-content').classList.toggle('paused',paused); const b = document.querySelector('#pause'); b.textContent = paused ? '▶ 再生する' : 'Ⅱ 一時停止'; b.setAttribute('aria-pressed',String(paused)); updatePlayback(); });
-  document.querySelector('#replay').addEventListener('click', () => { document.querySelector('#demo-content').innerHTML = d.html; bindInteractions(); updatePlayback(); });
-  document.querySelector('#speed').addEventListener('input', e => { speed = Number(e.target.value); document.querySelector('#speed-value').textContent = `${speed}×`; updatePlayback(); });
+  document.querySelector('#pause')?.addEventListener('click', () => { paused = !paused; document.querySelector('#demo-content').classList.toggle('paused',paused); const b = document.querySelector('#pause'); b.textContent = paused ? '▶ 再生する' : 'Ⅱ 一時停止'; b.setAttribute('aria-pressed',String(paused)); updatePlayback(); });
+  document.querySelector('#replay')?.addEventListener('click', () => { cleanupDemo(); cleanupDemo = () => {}; document.querySelector('#demo-content').innerHTML = d.html; bindInteractions(); updatePlayback(); });
+  document.querySelector('#speed')?.addEventListener('input', e => { speed = Number(e.target.value); document.querySelector('#speed-value').textContent = `${speed}×`; updatePlayback(); });
   const tabButtons = [...document.querySelectorAll('[data-tab]')];
   function selectTab(b) { currentTab = b.dataset.tab; tabButtons.forEach(t => {t.setAttribute('aria-selected',String(t===b));t.tabIndex=t===b?0:-1;}); document.querySelector('#code-panel').setAttribute('aria-labelledby',b.id); renderCode(); }
   tabButtons.forEach((b,i) => {b.addEventListener('click',()=>selectTab(b)); b.addEventListener('keydown', e => {let n;if(e.key==='ArrowRight')n=(i+1)%3;if(e.key==='ArrowLeft')n=(i+2)%3;if(e.key==='Home')n=0;if(e.key==='End')n=2;if(n!==undefined){e.preventDefault();selectTab(tabButtons[n]);tabButtons[n].focus();}});});
@@ -152,8 +342,23 @@ function detail(d) {
   renderCode();
 }
 function renderCode() { document.querySelector('#code').textContent = codeFor(currentDemo,currentTab); }
-function updatePlayback() { document.querySelector('#demo-content').classList.toggle('paused',paused); document.querySelectorAll('#demo-content .scene, #demo-content .scene *').forEach(el => el.getAnimations().forEach(a => {a.playbackRate = speed; if(paused) a.pause(); else a.play();})); }
+function updatePlayback() {
+  if (currentDemo?.id === 'wandering-image') {
+    cleanupDemo.setSpeed(speed);
+    cleanupDemo.setPaused(paused);
+    return;
+  }
+  document.querySelector('#demo-content').classList.toggle('paused',paused); document.querySelectorAll('#demo-content .scene, #demo-content .scene *').forEach(el => el.getAnimations().forEach(a => {a.playbackRate = speed; if(paused) a.pause(); else a.play();})); }
 function bindInteractions() {
+  if (currentDemo?.setup) cleanupDemo = currentDemo.setup(document.querySelector('#demo-content'), playTone);
+  const arena = document.querySelector('#demo-content .wander-scene');
+  if (arena) cleanupDemo = setupWanderingImage(arena, running => {
+    paused = !running;
+    const button = document.querySelector('#pause');
+    button.textContent = paused ? '▶ 再開する' : 'Ⅱ 一時停止';
+    button.setAttribute('aria-pressed', String(paused));
+    playTone(running ? 523 : 392);
+  });
   document.querySelectorAll('#demo-content .note').forEach(b=>b.addEventListener('click',()=>{playTone(Number(b.dataset.frequency),true);b.classList.add('playing');setTimeout(()=>b.classList.remove('playing'),250);}));
   document.querySelectorAll('#demo-content .ripple-button, #demo-content .tap-sound').forEach(b => {
     let timer;
@@ -171,7 +376,7 @@ function bindInteractions() {
   });
   document.querySelectorAll('#demo-content .flip-card').forEach(b=>b.addEventListener('click',()=>{const flipped=b.classList.toggle('flipped');b.setAttribute('aria-pressed',String(flipped));playTone(587);}));
 }
-function route() { const id = location.hash.match(/^#\/animation\/([a-z-]+)$/)?.[1]; const d = demos.find(d=>d.id===id); if(d) detail(d); else home(); window.scrollTo(0,0); }
+function route() { cleanupDemo(); cleanupDemo = () => {}; const id = location.hash.match(/^#\/animation\/([a-z-]+)$/)?.[1]; const d = demos.find(d=>d.id===id); if(d) detail(d); else home(); window.scrollTo(0,0); }
 window.addEventListener('hashchange',route);
 route();
 
