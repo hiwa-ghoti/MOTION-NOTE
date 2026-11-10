@@ -72,19 +72,21 @@ pre { max-width: 100%; overscroll-behavior-x: contain; }
   .collection-toolbar { flex-direction: column; gap: 14px; margin-bottom: 22px; }
   .filters { width: 100%; gap: 3px; }
   .filter { padding: 9px 12px; }
-  .grid { grid-template-columns: minmax(0, 1fr); gap: 22px; }
-  .card { border-radius: 12px; }
-  .card-visual { height: 205px; }
-  .card-visual .scene { transform: scale(1); }
-  .card-number { top: 17px; left: 18px; font-size: 10px; }
-  .card-sound { top: 15px; right: 15px; font-size: 10px; }
-  .card-body { padding: 18px; }
-  .card h2 { font-size: 20px; }
-  .card-arrow { width: 32px; height: 32px; font-size: 17px; }
-  .card-description { font-size: 13px; min-height: 0; margin: 8px 0 16px; }
-  .card-meta { gap: 6px; }
-  .tag { font-size: 10px; padding: 4px 7px; }
-  .card-level { font-size: 11px; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; }
+  .card { border-radius: 10px; }
+  .card-visual { height: 155px; }
+  .card-visual > div[aria-hidden] { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .card-visual .scene { flex-shrink: 0; transform: scale(.7); }
+  .card-number { top: 12px; left: 11px; font-size: 9px; }
+  .card-sound { top: 10px; right: 10px; font-size: 8px; }
+  .card-body { padding: 13px 11px; }
+  .card-title-row { align-items: flex-start; gap: 6px; }
+  .card h2 { font-size: 14px; line-height: 1.45; }
+  .card-arrow { width: 23px; height: 23px; font-size: 14px; }
+  .card-description { font-size: 11px; min-height: 0; margin: 8px 0 12px; }
+  .card-meta { gap: 4px; }
+  .tag { font-size: 8px; padding: 4px 5px; }
+  .card-level { font-size: 9px; }
   .breadcrumb { padding-top: 23px; font-size: 11px; gap: 8px; }
   .detail-heading { padding: 25px 0; gap: 12px; flex-wrap: wrap; }
   .detail-heading > div { flex: 1 1 200px; }
@@ -151,4 +153,15 @@ pre { max-width: 100%; overscroll-behavior-x: contain; }
 @media (max-width: 600px) {
   .detail-stage:has(.escape-scene) { height: 360px; }
   .detail-stage:has(.escape-scene) .stage-hint { font-size: 10px; }
+}
+
+@media (max-width: 360px) {
+  .card-visual { height: 140px; }
+  .card-visual .scene { transform: scale(.58); }
+  .card-body { padding: 12px 10px; }
+  .card h2 { font-size: 13px; }
+}
+@media (min-width: 480px) and (max-width: 600px) {
+  .card-visual { height: 180px; }
+  .card-visual .scene { transform: scale(.9); }
 }
