@@ -1,6 +1,6 @@
 # MOTION NOTE — 動きの実験帳
 
-HTML / CSS / JavaScriptのみで動く、23種類のアニメーション集です。
+HTML / CSS / JavaScriptのみで動く、28種類のアニメーション集です。
 
 `index.html` をブラウザで開くと使えます。ローカルサーバーで確認する場合は、このフォルダで次を実行します。
 
@@ -21,3 +21,5 @@ http://127.0.0.1:4173 を開いてください。
 「Little wanderer」はassets/wandering-image.jpgをタップすると動き、もう一度タップすると停止します。公開時はassetsフォルダも一緒にプッシュしてください。画像の作り方・コードは個別画面から確認できます。
 
 追加デモ：Color picnic（色の変化）、Jelly joy（ゼリー）、Tiny celebration（紙吹雪）、Catch me!（逃げる画像）、Hello, goodnight（昼夜切り替え）。すべてタップで音と動きが楽しめます。
+
+追加デモ：Together again（分裂・合体）、Follow my lead（マウス・タッチ・矢印キーで図形が追従）、A drop of calm（水面の任意位置に波紋）、Bloom a little（開閉する花）、Roll a little（ランダムなサイコロ）。昼夜切り替えはデモ背景にも反映されます。

@@ -281,6 +281,213 @@ demos.push(...playfulDemos.map(d => ({
   js:audioSample + d.setup.toString() + `\n\nconst cleanup = ${d.setup.name}(document, playNote);\n// 画面を閉じるときは cleanup() を呼びます。`
 })));
 
+function setupSplitBall(root, sound) {
+  const button = root.querySelector('.split-button');
+  const status = root.querySelector('.split-status');
+  let timer;
+  function split() {
+    clearTimeout(timer);
+    button.classList.remove('splitting');
+    void button.offsetWidth;
+    button.classList.add('splitting');
+    status.textContent = 'ばらばら、そしてひとつに。';
+    sound(330);
+    timer = setTimeout(() => {
+      button.classList.remove('splitting');
+      status.textContent = 'タップして分裂';
+    }, 2250);
+  }
+  button.addEventListener('click', split);
+  return () => { clearTimeout(timer); button.removeEventListener('click', split); };
+}
+function setupMagnetTrail(root, sound) {
+  const arena = root.querySelector('.magnet-scene');
+  const dots = [...arena.querySelectorAll('.magnet-dot')];
+  const cursor = arena.querySelector('.magnet-cursor');
+  const points = dots.map(() => ({x: 0, y: 0}));
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  let target = {x: 0, y: 0}, frame = 0, previousTime = 0;
+  let pointer = null;
+  function draw(element, x, y, size) {
+    element.style.left = '0'; element.style.top = '0';
+    element.style.transform = `translate(${x - size / 2}px, ${y - size / 2}px)`;
+  }
+  function tick(time) {
+    frame = 0;
+    const dt = previousTime ? Math.min(time - previousTime, 40) : 16.67;
+    previousTime = time;
+    const amount = reducedMotion.matches ? 1 : 1 - Math.pow(.77, dt / 16.67);
+    let lead = target, distance = 0;
+    draw(cursor, target.x, target.y, 30);
+    points.forEach((point, index) => {
+      point.x += (lead.x - point.x) * amount;
+      point.y += (lead.y - point.y) * amount;
+      distance = Math.max(distance, Math.abs(lead.x - point.x), Math.abs(lead.y - point.y));
+      draw(dots[index], point.x, point.y, 18);
+      lead = point;
+    });
+    if (distance > .15) frame = requestAnimationFrame(tick);
+    else previousTime = 0;
+  }
+  function startFrame() { if (!frame) frame = requestAnimationFrame(tick); }
+  function clampTarget() {
+    target.x = Math.min(Math.max(target.x, 16), Math.max(16, arena.clientWidth - 16));
+    target.y = Math.min(Math.max(target.y, 16), Math.max(16, arena.clientHeight - 16));
+  }
+  function move(event) {
+    const rect = arena.getBoundingClientRect();
+    target = {x: (event.clientX - rect.left) * arena.clientWidth / rect.width, y: (event.clientY - rect.top) * arena.clientHeight / rect.height};
+    clampTarget(); startFrame();
+  }
+  function down(event) {
+    if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    pointer = event.pointerId;
+    arena.setPointerCapture(pointer);
+    arena.focus({preventScroll: true});
+    move(event); sound(523);
+  }
+  function up(event) {
+    if (event.pointerId !== pointer) return;
+    if (arena.hasPointerCapture(pointer)) arena.releasePointerCapture(pointer);
+    pointer = null;
+  }
+  function leave() {
+    if (pointer === null) { target = {x: arena.clientWidth / 2, y: arena.clientHeight / 2}; startFrame(); }
+  }
+  function key(event) {
+    const delta = {ArrowLeft: [-24, 0], ArrowRight: [24, 0], ArrowUp: [0, -24], ArrowDown: [0, 24]}[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    target.x += delta[0]; target.y += delta[1];
+    clampTarget(); startFrame();
+  }
+  function resize() {
+    clampTarget();
+    points.forEach(point => {
+      point.x = Math.min(Math.max(point.x, 16), Math.max(16, arena.clientWidth - 16));
+      point.y = Math.min(Math.max(point.y, 16), Math.max(16, arena.clientHeight - 16));
+    });
+    startFrame();
+  }
+  target = {x: arena.clientWidth / 2, y: arena.clientHeight / 2};
+  points.forEach((point, i) => { point.x = target.x - i * 4; point.y = target.y; });
+  const events = {pointermove: move, pointerdown: down, pointerup: up, pointercancel: up, pointerleave: leave, keydown: key};
+  Object.entries(events).forEach(([name, handler]) => arena.addEventListener(name, handler));
+  const observer = new ResizeObserver(resize);
+  observer.observe(arena); startFrame();
+  return () => {
+    cancelAnimationFrame(frame); observer.disconnect();
+    if (pointer !== null && arena.hasPointerCapture(pointer)) arena.releasePointerCapture(pointer);
+    Object.entries(events).forEach(([name, handler]) => arena.removeEventListener(name, handler));
+  };
+}
+function setupWaterRipples(root, sound) {
+  const water = root.querySelector('.water-scene');
+  const ripples = new Map();
+  function remove(ripple) { clearTimeout(ripples.get(ripple)); ripples.delete(ripple); ripple.remove(); }
+  function tap(event) {
+    const rect = water.getBoundingClientRect();
+    const x = event.detail === 0 ? water.clientWidth / 2 : (event.clientX - rect.left) * water.clientWidth / rect.width;
+    const y = event.detail === 0 ? water.clientHeight / 2 : (event.clientY - rect.top) * water.clientHeight / rect.height;
+    // 連続タップでも増えすぎないよう、古い波紋から取り除きます。
+    if (ripples.size >= 12) remove(ripples.keys().next().value);
+    const ripple = document.createElement('span');
+    ripple.className = 'water-ripple';
+    ripple.setAttribute('aria-hidden', 'true');
+    ripple.style.left = `${Math.max(0, Math.min(x, water.clientWidth))}px`;
+    ripple.style.top = `${Math.max(0, Math.min(y, water.clientHeight))}px`;
+    for (let i = 0; i < 3; i++) {
+      const ring = document.createElement('i');
+      ring.style.animationDelay = `${i * .12}s`;
+      ripple.append(ring);
+    }
+    water.append(ripple);
+    ripples.set(ripple, setTimeout(() => remove(ripple), 1700));
+    sound(440 + Math.max(0, 1 - y / water.clientHeight) * 220);
+  }
+  water.addEventListener('click', tap);
+  return () => { water.removeEventListener('click', tap); [...ripples.keys()].forEach(remove); };
+}
+function setupFlower(root, sound) {
+  const flower = root.querySelector('.flower-button');
+  const label = root.querySelector('.flower-status');
+  function tap() {
+    const open = flower.classList.toggle('bloomed');
+    flower.setAttribute('aria-pressed', String(open));
+    flower.setAttribute('aria-label', open ? '花をつぼみに戻す' : '花を咲かせる');
+    label.textContent = open ? 'ぱっと、ひと花。' : 'タップで花を咲かせよう';
+    sound(open ? 659 : 392);
+  }
+  flower.addEventListener('click', tap);
+  return () => flower.removeEventListener('click', tap);
+}
+function setupDice(root, sound) {
+  const button = root.querySelector('.dice-button');
+  const face = root.querySelector('.dice-face');
+  const label = root.querySelector('.dice-status');
+  let timer, rolling = false;
+  function roll() {
+    if (rolling) return;
+    rolling = true;
+    button.classList.add('dice-rolling');
+    button.setAttribute('aria-busy', 'true');
+    label.textContent = 'ころころ…';
+    sound(440);
+    timer = setTimeout(() => {
+      const value = Math.floor(Math.random() * 6) + 1;
+      face.dataset.face = String(value);
+      label.textContent = `${value} が出ました！`;
+      button.setAttribute('aria-label', `サイコロを振る。現在の目は${value}`);
+      button.classList.remove('dice-rolling');
+      button.setAttribute('aria-busy', 'false');
+      rolling = false;
+      sound(330 + value * 55);
+    }, 700);
+  }
+  button.addEventListener('click', roll);
+  return () => { clearTimeout(timer); button.removeEventListener('click', roll); };
+}
+const morePlayfulDemos = [
+  {
+    id:'split-ball', name:'Together again', jp:'分裂するボール', desc:'ひとつがたくさんに。やがて、またひとつに。', bg:'#e9eddb', setup:setupSplitBall,
+    html:'<div class="scene split-scene">\n  <button class="split-button" aria-label="ボールを分裂させる"><span class="split-core" aria-hidden="true"></span>\n'+Array.from({length:8},(_,i)=>`    <i class="split-piece" aria-hidden="true" style="--x:${Math.round(Math.cos(i*Math.PI/4)*66)}px;--y:${Math.round(Math.sin(i*Math.PI/4)*44)}px;--c:${['#9ba875','#bdc78f','#7d9466','#cbb47e'][i%4]}"></i>`).join('\n')+'\n  </button>\n  <span class="split-status" role="status">タップして分裂</span>\n</div>',
+    css:'.split-scene { flex-direction: column; }\n.split-button { position: relative; width: 190px; height: 115px; border: 0; padding: 0; background: transparent; }\n.split-core { position: absolute; left: calc(50% - 35px); top: calc(50% - 35px); width: 70px; height: 70px; border-radius: 50%; background: #92a169; box-shadow: inset -7px -7px #81945a; }\n.split-piece { position: absolute; left: calc(50% - 10px); top: calc(50% - 10px); width: 20px; height: 20px; border-radius: 50%; background: var(--c); opacity: 0; }\n.splitting .split-core { animation: split-core 2.2s ease-in-out both; }\n.splitting .split-piece { animation: split-piece 2.2s ease-in-out both; }\n.split-status { font: 10px/1.5 sans-serif; color: #7b8766; }\n@keyframes split-core { 0%, 100% { transform: scale(1); opacity: 1; } 18%, 78% { transform: scale(0); opacity: 0; } }\n@keyframes split-piece { 0%, 100% { opacity: 0; transform: translate(0,0) scale(.1); } 20% { opacity: 1; } 38%, 60% { opacity: 1; transform: translate(var(--x),var(--y)) scale(1); } 80% { opacity: 1; transform: translate(0,0) scale(.5); } }',
+    steps:['大きな丸の中心に、8つの小さな丸を重ねます。','大きな丸を縮め、CSS変数で指定した方向に小さな丸を広げます。','少し間を置いて小さな丸を中心へ戻し、大きな丸を元のサイズに戻します。']
+  },
+  {
+    id:'magnet-trail', name:'Follow my lead', jp:'磁石みたいな動き', desc:'マウスや指のあとを、図形がするすると追いかける。', bg:'#eee6dd', setup:setupMagnetTrail,
+    hint:'マウスを動かす・指でなぞると追いかけます。矢印キーでも遊べます。',
+    html:'<div class="scene magnet-scene" role="group" tabindex="0" aria-label="磁石のエリア。マウスや指でなぞるか、矢印キーで動かせます">\n  <span class="magnet-cursor" aria-hidden="true"></span>\n'+Array.from({length:6},(_,i)=>`  <i class="magnet-dot" aria-hidden="true" style="--i:${i};--c:${['#82965d','#9aab71','#b3bd89','#c5aa7d','#d0b78d','#dcc99f'][i]}"></i>`).join('\n')+'\n  <span class="magnet-caption" aria-hidden="true">なぞって、つれていこう。</span>\n</div>',
+    css:'.magnet-scene { position: relative; display: block; width: min(680px,calc(100vw - 32px)); height: clamp(200px,45vh,360px); overflow: hidden; touch-action: none; cursor: crosshair; border-radius: 12px; background-image: radial-gradient(#b8ae922e 1px, transparent 1px); background-size: 20px 20px; }\n.magnet-cursor { position: absolute; width: 30px; height: 30px; left: calc(50% - 15px); top: calc(50% - 15px); border: 1px dashed #8b9970; border-radius: 50%; pointer-events: none; }\n.magnet-dot { position: absolute; width: 18px; height: 18px; left: calc(50% - 9px - var(--i)*8px); top: calc(50% - 9px); border-radius: 6px; background: var(--c); pointer-events: none; }\n.magnet-dot:nth-of-type(even) { border-radius: 50%; }\n.magnet-caption { position: absolute; right: 10px; bottom: 10px; color: #8d8972; font: 10px/1.5 sans-serif; pointer-events: none; }',
+    steps:['Pointer Eventsでマウスと指の座標を同じ方法で取得します。','各図形をひとつ前の図形に少しずつ近づけると、あとを追う動きになります。','指でなぞる間は操作エリアだけスクロールを抑えます。矢印キーでも座標を動かせます。','画面移動時にはフレームとイベントを解除します。動きを減らす設定では遅れずに追従します。']
+  },
+  {
+    id:'water-ripples', name:'A drop of calm', jp:'水面の波紋', desc:'触れた場所から、静かな波紋が重なって広がる。', bg:'#e0eae3', setup:setupWaterRipples,
+    hint:'水面の好きなところをタップ。波紋をいくつも重ねてみよう。',
+    html:'<button class="scene water-scene" aria-label="水面をタップして波紋を広げる"><span class="water-caption" aria-hidden="true">tap anywhere, make a little ripple.</span></button>',
+    css:'.water-scene { position: relative; display: block; width: min(680px,calc(100vw - 32px)); height: clamp(200px,45vh,360px); border: 0; padding: 0; overflow: hidden; background: radial-gradient(ellipse at 35% 25%,#edf5e8,#c9dfd4 75%); border-radius: 14px; cursor: crosshair; touch-action: manipulation; }\n.water-scene::before { content: ""; position: absolute; width: 70px; height: 32px; left: calc(50% - 35px); top: calc(50% - 16px); border: 1px solid #8fae9970; border-radius: 50%; box-shadow: 0 0 0 12px #d7e7dc,0 0 0 13px #a9c4b050; pointer-events: none; }\n.water-ripple { position: absolute; width: 0; height: 0; pointer-events: none; }\n.water-ripple i { position: absolute; width: 28px; height: 14px; left: -14px; top: -7px; border: 1px solid #789e88; border-radius: 50%; opacity: 0; animation: water-expand 1.4s ease-out both; }\n.water-caption { position: absolute; bottom: 12px; left: 12px; right: 12px; text-align: center; color: #7c9b85; font: 10px/1.5 sans-serif; pointer-events: none; }\n@keyframes water-expand { 0% { transform: scale(.2); opacity: .9; } 30% { opacity: .6; } 100% { transform: scale(9); opacity: 0; } }',
+    steps:['タップした座標を水面エリア内の座標に変換します。','その場所に楕円の輪を3つ作り、少しずつ時間をずらして拡大します。','透明になった輪は削除し、連続タップしても増えすぎないよう上限を設けます。','キーボードのEnter・Spaceでは、水面の中心に波紋を作ります。']
+  },
+  {
+    id:'flower-bloom', name:'Bloom a little', jp:'タップで花が咲く', desc:'小さなつぼみから、ぱっとひらく花びら。', bg:'#f0e7de', setup:setupFlower,
+    html:'<div class="scene flower-scene">\n  <button class="flower-button" aria-label="花を咲かせる" aria-pressed="false"><span class="flower-stem" aria-hidden="true"></span>\n'+Array.from({length:6},(_,i)=>`    <i class="flower-petal" aria-hidden="true" style="--turn:${i*60}deg"></i>`).join('\n')+'\n    <span class="flower-center" aria-hidden="true"></span>\n  </button>\n  <span class="flower-status" role="status">タップで花を咲かせよう</span>\n</div>',
+    css:'.flower-scene { flex-direction: column; gap: 4px; }\n.flower-button { position: relative; width: 130px; height: 120px; background: transparent; border: 0; padding: 0; }\n.flower-stem { position: absolute; width: 4px; height: 60px; background: #92a475; top: 50px; left: 63px; border-radius: 4px; }\n.flower-stem::after { content: ""; position: absolute; width: 24px; height: 12px; top: 28px; right: 0; background: #a8b683; border-radius: 0 100% 0 100%; }\n.flower-petal { position: absolute; width: 30px; height: 45px; top: 10px; left: 50px; background: #d4a697; border-radius: 60% 60% 45% 45%; transform-origin: 50% 100%; transform: rotate(var(--turn)) scale(.15); opacity: .3; transition: transform .7s cubic-bezier(.3,1.5,.5,1),opacity .5s; }\n.bloomed .flower-petal { transform: rotate(var(--turn)) scale(1); opacity: 1; }\n.flower-center { position: absolute; width: 23px; height: 23px; top: 43px; left: 53.5px; border-radius: 50%; background: #ddc480; box-shadow: inset -3px -3px #c8ad65; }\n.flower-status { font: 10px/1.5 sans-serif; color: #9a8c76; }',
+    steps:['6枚の花びらを、角度を60度ずつ変えて重ねます。','つぼみの間は花びらを縮めておき、タップで一斉に広げます。','もう一度タップするとつぼみに戻ります。茎と葉もCSSで作れます。']
+  },
+  {
+    id:'rolling-dice', name:'Roll a little', jp:'ころころサイコロ', desc:'ころころ、ぽん。今日はどんな目が出る？', bg:'#eeeccf', setup:setupDice,
+    html:'<div class="scene dice-scene">\n  <button class="dice-button" aria-label="サイコロを振る。現在の目は1" aria-busy="false"><span class="dice-face" data-face="1" aria-hidden="true">\n'+Array.from({length:7},()=> '    <i></i>').join('\n')+'\n  </span></button>\n  <span class="dice-status" role="status">タップでころころ</span>\n</div>',
+    css:'.dice-scene { flex-direction: column; gap: 17px; }\n.dice-button { width: 80px; height: 80px; border: 1px solid #c4c6a3; border-radius: 18px; padding: 16px; background: #fbf7df; box-shadow: 4px 5px 0 #d7d6ae; }\n.dice-face { display: grid; width: 100%; height: 100%; grid-template: repeat(3,1fr) / repeat(3,1fr); gap: 5px; }\n.dice-face i { width: 10px; height: 10px; border-radius: 50%; background: #8a9862; opacity: 0; place-self: center; }\n.dice-face i:nth-child(1) { grid-area: 1/1; }\n.dice-face i:nth-child(2) { grid-area: 1/3; }\n.dice-face i:nth-child(3) { grid-area: 2/1; }\n.dice-face i:nth-child(4) { grid-area: 2/2; }\n.dice-face i:nth-child(5) { grid-area: 2/3; }\n.dice-face i:nth-child(6) { grid-area: 3/1; }\n.dice-face i:nth-child(7) { grid-area: 3/3; }\n'+[ [4],[1,7],[1,4,7],[1,2,6,7],[1,2,4,6,7],[1,2,3,5,6,7] ].map((pips,i)=>pips.map(p=>`.dice-face[data-face="${i+1}"] i:nth-child(${p})`).join(',\n')+' { opacity: 1; }').join('\n')+'\n.dice-rolling { animation: dice-roll .7s ease-out; }\n.dice-status { font: 10px/1.5 sans-serif; color: #8b8e6c; }\n@keyframes dice-roll { 20% { transform: translateY(-14px) rotate(-35deg); } 45% { transform: translateY(-22px) rotate(100deg); } 75% { transform: translateY(0) rotate(195deg); } 100% { transform: rotate(360deg); } }',
+    steps:['3×3のグリッドに点を配置し、data-face属性で1〜6の目を表示します。','タップで回転・ジャンプを再生し、Math.randomで出目を決めます。','転がっている間の連打を抑え、止まったら結果と音を出します。']
+  }
+];
+demos.push(...morePlayfulDemos.map(d => ({
+  ...d, category:'interactive', level:'ひと工夫', tags:['HTML','CSS','JS'],
+  js:audioSample + d.setup.toString() + `\n\nconst cleanup = ${d.setup.name}(document, playNote);\n// 画面を閉じるときは cleanup() を呼びます。`
+})));
+const dayNightDemo = demos.find(d => d.id === 'day-night');
+dayNightDemo.css += '\n.day-night-scene { background: #e9eddb; border-radius: 16px; transition: background .7s ease; }\n.day-night-scene:has(.is-night) { background: #303a4d; }\n.day-night-scene:has(.is-night) .day-night-label { color: #dce4be; }';
+
 const app = document.querySelector('#app');
 const style = document.createElement('style');
 style.textContent = demos.map(d => d.css).join('\n');
